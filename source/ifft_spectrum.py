@@ -127,7 +127,7 @@ class Spectrum:
         该函数会将去噪结果存储在self.spectrum中, 将最终阈值存储在self.clear_noise_final_hreshold中
         """
 
-        spectrum = self.origin_spectrum  # 每次清除噪声总是从原始数据开始
+        spectrum = self.origin_spectrum.copy()  # 每次清除噪声总是从原始数据开始
 
         if mode == 'auto':
             # 清除噪声
@@ -255,7 +255,8 @@ class Spectrum:
             intensity: 时间t处的功率
         """
 
-        self.amp_spectrum = np.sqrt(abs(self.interpolated_spectrum))
+        self.amp_spectrum = self.interpolated_spectrum.copy()
+        self.amp_spectrum[:, 1] = np.sqrt(self.amp_spectrum[:, 1])
 
         # 根据离散傅里叶变换的定义, 0和奈奎斯特采样频率处的振幅对原函数的贡献为1/NF[n], 中间频率分量的贡献为2/NF[n],
         # 但光栅光谱仪测出来的光谱值, 应指的是实际脉冲中频率分量的贡献F[n], 若要使这两者相同, 则应对光栅光谱仪测出的数据除以2.
@@ -304,11 +305,11 @@ class Spectrum:
         # 插值后 调试用 实际不必展示
         plot_spectrum(self.axes[0], self.interpolated_spectrum, 'y*', 'interpolated')
 
-        self.pulse.draw(self.axes[1], cl='r+')
-
+        self.pulse.draw(self.axes[1], cl='r')
         plt.legend()
 
-        self.fig.show()        
+        # self.fig.show()
+        plt.show()
 
         return self.fig
         
@@ -327,9 +328,7 @@ class Spectrum:
 
         self.draw()
 
-
-filepath = 'D:\space\work\spectrum_tools\data\gussian_spectrum_3fs_800nm.txt'
-
+filepath = './data/gussian_spectrum_3fs_800nm.txt'
 
 spectrum = Spectrum(filepath)
 # %%
