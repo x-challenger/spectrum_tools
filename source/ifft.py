@@ -1,3 +1,4 @@
+from math import e
 from numpy import matrixlib
 from pathos.multiprocessing import ProcessPool as Pool
 import os
@@ -63,9 +64,8 @@ class Spectrum_FFT:
     def get_spectrum(self, line_sep):
 
         def clear_noise(spectrum: np.ndarray):
-            # 清除噪声
-            init_length = len(spectrum)
 
+            init_len = len(spectrum)
             spectrum = spectrum[spectrum[:, 1] >= self.threshold]
             last_len = len(spectrum)
 
@@ -75,7 +75,7 @@ class Spectrum_FFT:
 
                 next_len = len(spectrum[spectrum[:, 1] >= self.threshold])
 
-                if (last_len - next_len) / self.threshold_increase_step >= self.data_deleted_per_step_threshold:
+                if (last_len - next_len) / (self.threshold_increase_step * init_len) >= self.data_deleted_per_step_threshold:
 
                     spectrum = spectrum[spectrum[:, 1] >= self.threshold]
 
@@ -127,8 +127,6 @@ class Spectrum_FFT:
                 for omega, power in zip(omega_array, self.spectrum[:, 1]):
 
                     # 波长的单位应为nm，时间的单位应为fs
-
-
                     y += power * np.e**(1j * omega * t * 100)
 
                 return abs(y) ** 2
@@ -152,6 +150,9 @@ class Spectrum_FFT:
                     'current minimum value of t smaller than expected minimum value of t')
 
             t_lp = np.linspace(t_min, t_c_min, int(
+
+
+                #     y += power * np.e**(1j * omega * t * 100)
                 (t_c_min - t_min) / delta_t))
             y_lp = f(t_lp)
 
@@ -260,7 +261,7 @@ class Spectrum_FFT:
 
             draw_auxiliary_line(ax, self.power_spectrum_pl, self.power_spectrum_pr, 'nm', '\lambda')
 
-            # ax.axhline(self.threshold, color='red', label='threshold')
+            ax.axhline(self.threshold, color='red', label='threshold')
 
             ax.set_title('raw spectrum')
 
@@ -314,9 +315,9 @@ def generate_gussian_spectrum(tau_p, lamda_0):
 
     delta_omega = 4 * np.log(2) * 0.01 / tau_p
 
-    omega_max = omega_0 + delta_omega * 5
+    omega_max = omega_0 + delta_omega * 2
 
-    omega_min = omega_0 - delta_omega * 5
+    omega_min = omega_0 - delta_omega * 2
 
     lamda_max = 2 * np.pi * 3 / (omega_0 - delta_omega)
     lamda_min = 2 * np.pi * 3 / (omega_0 + delta_omega)
@@ -341,18 +342,4 @@ end_time = time.perf_counter()
 print('time used: %.3fs' % (end_time - start_time))
 
 spectrum_gussian.draw()
-
-
-
-#%%
-
-import numpy as np
-from numpy import matrixlib
-
-a = np.array([0, 1, 2])
-b = np.array([1, 2, 3])
-
-a_m = matrixlib.asmatrix(a)
-b_m = matrixlib.asmatrix(b)
-b_m.T * a_m
 

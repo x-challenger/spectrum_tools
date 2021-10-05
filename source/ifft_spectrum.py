@@ -129,6 +129,7 @@ class Spectrum:
 
         spectrum = self.origin_spectrum.copy()  # 每次清除噪声总是从原始数据开始
 
+        spectrum = spectrum[spectrum[:, 1] >= 0] # 清除小于零的数据
         if mode == 'auto':
             # 清除噪声
 
@@ -138,6 +139,7 @@ class Spectrum:
             # 去除噪音的控制参数 阈值增加所被删除的数据个数除以步长应该大于该阈值, 否则停止阈值增加(去除噪音完成)
             minimum_data_deleted_per_step = 478000
 
+            init_len = len(spectrum)
             spectrum = spectrum[spectrum[:, 1] >= threshold]
             last_len = len(spectrum)
 
@@ -148,7 +150,7 @@ class Spectrum:
                 new_spectrum = spectrum[spectrum[:, 1] >= threshold]
                 next_len = len(new_spectrum)
 
-                if (last_len - next_len) / threshold_increase_step >= minimum_data_deleted_per_step:
+                if (last_len - next_len) / (threshold_increase_step * init_len) >= minimum_data_deleted_per_step:
 
                     spectrum = new_spectrum
 
@@ -275,6 +277,94 @@ class Spectrum:
 
         return (t, abs(amp)**2)
     
+    def ift(self) -> np.ndarray:
+
+        def f(t: np.ndarray):
+
+            def single_process_f(t: np.ndarray):
+
+                y = np.zeros((len(t), ), dtype=np.complex128)
+
+                omega_array = 2 * np.pi * 3 / self.spectrum[:, 0]
+
+                # TODO 应尝试将并行用在该for循环上, 而非拆分numpy数组.
+                for omega, power in zip(omega_array, self.spectrum[:, 1]):
+
+                    # 波长的单位应为nm，时间的单位应为fs
+                    y += power * np.e**(1j * omega * t * 100)
+
+                return abs(y) ** 2
+
+            with Pool(nodes=os.cpu_count()) as p:
+                res = p.map(single_process_f,
+                            np.array_split(t, os.cpu_count()))
+
+            return np.concatenate(res)  # 输出值是光功率
+
+        def update_t_y(t_min, t_max, delta_t, t, y: np.ndarray):
+
+            t_c_min, t_c_max = t[0], t[-1]
+
+            if t_max < t_c_max:
+                raise ValueError(
+                    'current maximum value of t larger than expected maximum value of t')
+
+            if t_min > t_c_min:
+                raise ValueError(
+                    'current minimum value of t smaller than expected minimum value of t')
+
+            t_lp = np.linspace(t_min, t_c_min, int(
+
+
+                #     y += power * np.e**(1j * omega * t * 100)
+                (t_c_min - t_min) / delta_t))
+            y_lp = f(t_lp)
+
+            t_rp = np.linspace(t_c_max, t_max, int(
+                (t_max - t_c_max) / delta_t))
+            y_rp = f(t_rp)
+
+            return (np.concatenate((t_lp, t, t_rp)), np.concatenate((y_lp, y, y_rp)))
+
+        def extend_y_to_half_maximum(t, y, delta_t):
+
+            while True:
+
+                t_min, t_max = t[0], t[-1]
+                # 扩展右边界
+                if (current_ratio := y[-1] / max(y)) >= 0.3:
+                    t_max = t[-1] / (1 - current_ratio)
+
+                # 扩展左边界
+                if (current_ratio := y[0] / max(y)) >= 0.3:
+                    t_min = t[0] / (1 - current_ratio)
+
+                if max(y[0] / max(y), y[-1] / max(y)) <= 0.3:
+                    break
+
+                t, y = update_t_y(
+                    t_min=t_min,
+                    t_max=t_max,
+                    delta_t=delta_t,
+                    t=t,
+                    y=y
+                )
+            return (t, y)
+
+        delta_t = self.delta_t
+        t_min = -10
+        t_max = 10
+
+        t = np.linspace(t_min, t_max, int((t_max - t_min) / delta_t))
+
+        y = f(t)
+
+        t, y = extend_y_to_half_maximum(t, y, delta_t)
+
+        y /= max(y)
+
+        return (t, y)
+
     def draw(self):
 
         def plot_spectrum(ax:plt.Axes, spectrum, cl, label):
