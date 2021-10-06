@@ -30,7 +30,7 @@ class Spectrum_FFT:
 
         self.data_deleted_per_step_threshold = 0.001
 
-        self.delta_t = 0.001
+        self.delta_t = 0.01
 
         self.show = show
 
@@ -329,14 +329,14 @@ if __name__ == '__main__':
 
     start_time = time.perf_counter()
 
-    # spectrum = Spectrum_FFT('./spec.txt')
-
-    # spectrum.draw()
-
-    spectrum_gussian = Spectrum_FFT(spectrum=generate_gussian_spectrum(3, 800), show=True)
+    # spectrum_gussian = Spectrum_FFT(spectrum=generate_gussian_spectrum(3, 800), show=True)
+    spectrum_gussian = Spectrum_FFT('.\data\gussian_spectrum_3fs_800nm.txt', show=True)
 
     end_time = time.perf_counter()
     print('time used: %.3fs' % (end_time - start_time))
-
     spectrum_gussian.draw()
+
+
+
+
 

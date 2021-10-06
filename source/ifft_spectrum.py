@@ -16,17 +16,40 @@ class Pulse:
 
         self.intensity /= max(self.intensity)
 
-        self.FWHM = self.cal_FWHM()
+        self.HMP_l, self.HMP_r, self.FWHM = self.cal_FWHM(self.t, self.intensity)
 
-    def cal_FWHM(self):
+    def cal_FWHM(self, x:ndarray, y:ndarray):
+        """计算y的FWHM(半高全宽)
 
-        ty = np.column_stack([self.t, self.intensity])
+        Parameters
+        ----------
+        x : ndarray
+            自变量
+        y : ndarray
+            因变量
 
-        t_upper_half = ty[ty[:, 1] >= .5][:, 0]
+        Returns
+        -------
+        tuple
+            (HMP_l, HMP_r, FWHM)
+            HMP_l:半高处左边的点
+            HMP_r:半高处右边的点
+            FWHM:半高全宽值
+        """
+        ty = np.column_stack([x, y])
 
-        self.t_left_half, self.t_right_half = t_upper_half[0], t_upper_half[-1]
+        ty_upper_half = ty[ty[:, 1] >= .5]
 
-        return abs(self.t_right_half - self.t_left_half)
+        t_upper_half, y_upper_half = ty_upper_half[:, 0], ty_upper_half[:, 1]
+
+        t_left_half, t_right_half = t_upper_half[0], t_upper_half[-1]
+        y_left_half, y_right_half = y_upper_half[0], y_upper_half[-1]
+
+        HMP_l = (t_left_half, y_left_half)
+        HMP_r = (t_right_half, y_right_half)
+
+        return (HMP_l, HMP_r, abs(t_right_half - t_left_half))
+
 
     def draw(self, ax:plt.Axes, cl:str='', label:str='pulse'):
 
@@ -46,13 +69,13 @@ class Spectrum:
         power : array like
             光谱数据中的强度分量
         omega : array like, optional
-            光谱数据中的频率分量, 单位为PHz( 10^(15)Hz ) default None
+            光谱数据中的频率分量, 单位为10^(17)Hz default None
         delimiter : string, optional
             光谱文件分隔符 default '\t'
 
         注:
         1. filepath, lamda, omega至少给定一个, 否则报错.
-        2. 考虑到计算机存储数的精度,因此波长单位采用nm, 频率单位采用PHz.
+        2. 考虑到计算机存储数的精度,因此波长单位采用nm, 频率单位采用10^17Hz.
         3. self.spectrum中存储的是功率谱.
         """
 
@@ -81,6 +104,7 @@ class Spectrum:
         self.update(mode='auto')
 
     def lambda_omega_converter(self, x):
+
         """将x对应的波长和频率进行相互转化
 
         Parameters:
@@ -96,9 +120,6 @@ class Spectrum:
 
         return 6 * np.pi / x
 
-    def omega2lambda(self):
-        pass
-
     def load_spectrum(self, filepath, delimiter):
         """从给定文件中加载光谱数据, 该函数会保存一份数据备份在self.origin_data中
 
@@ -112,8 +133,10 @@ class Spectrum:
 
         self.spectrum = np.loadtxt(fname=filepath, delimiter=delimiter)
 
-    def clear_noise(self, *, mode: str, omega_min: float = None, omega_max: float = None, threshold: float = None):
-        """清除光谱数据中的噪声数据
+    def clear_noise(self, *, mode: str, omega_min: float = None, omega_max: float = None, threshold: float = 0):
+        """
+        清除光谱数据中的噪声数据
+        该函数会将去噪结果存储在self.spectrum中, 将最终阈值存储在self.clear_noise_final_hreshold中
 
         Parameters
         ----------
@@ -127,12 +150,10 @@ class Spectrum:
             频率上限, by default None
         threshold : float, optional
             功率值(已归一化)在threshold以下的数据被清除, by default None
-        该函数会将去噪结果存储在self.spectrum中, 将最终阈值存储在self.clear_noise_final_hreshold中
         """
 
         spectrum = self.origin_spectrum.copy()  # 每次清除噪声总是从原始数据开始
 
-        spectrum = spectrum[spectrum[:, 1] >= 0] # 清除小于零的数据
         if mode == 'auto':
             # 清除噪声
 
@@ -174,11 +195,6 @@ class Spectrum:
 
             try:
                 spectrum = spectrum[spectrum[:, 0] <= omega_max]
-            except TypeError:
-                pass
-
-            try:
-                spectrum = spectrum[spectrum[:, 1] >= threshold]
             except TypeError:
                 pass
 
@@ -280,8 +296,12 @@ class Spectrum:
 
         return (t, abs(amp)**2)
     
-    def ift(self) -> np.ndarray:
+    def ift(self, delta_t) -> np.ndarray:
         """对self.spectrum进行傅里叶变换
+
+        Parameters:
+        delta_t : float
+            时间间隔
 
         Returns
         -------
@@ -290,12 +310,19 @@ class Spectrum:
         """
 
         def f(t: np.ndarray):
+            """光功率的函数
+
+            Parameters
+            ----------
+            t : np.ndarray
+                时间
+            """
 
             def single_process_f(t: np.ndarray):
 
                 y = np.zeros((len(t), ), dtype=np.complex128)
 
-                omega_array = 2 * np.pi * 3 / self.spectrum[:, 0]
+                omega_array = self.spectrum[:, 0]
 
                 # TODO 应尝试将并行用在该for循环上, 而非拆分numpy数组.
                 for omega, power in zip(omega_array, self.spectrum[:, 1]):
@@ -324,9 +351,6 @@ class Spectrum:
                     'current minimum value of t smaller than expected minimum value of t')
 
             t_lp = np.linspace(t_min, t_c_min, int(
-
-
-                #     y += power * np.e**(1j * omega * t * 100)
                 (t_c_min - t_min) / delta_t))
             y_lp = f(t_lp)
 
@@ -361,7 +385,6 @@ class Spectrum:
                 )
             return (t, y)
 
-        delta_t = .001
         t_min = -10
         t_max = 10
 
@@ -374,10 +397,42 @@ class Spectrum:
         y /= max(y)
 
         return (t, y)
+    
+    def cal_FWHM(self, x:ndarray, y:ndarray):
+        """计算y的FWHM(半高全宽)
+
+        Parameters
+        ----------
+        x : ndarray
+            自变量
+        y : ndarray
+            因变量
+
+        Returns
+        -------
+        tuple
+            (HMP_l, HMP_r, FWHM)
+            HMP_l:半高处左边的点
+            HMP_r:半高处右边的点
+            FWHM:半高全宽值
+        """
+        ty = np.column_stack([x, y])
+
+        ty_upper_half = ty[ty[:, 1] >= .5]
+
+        t_upper_half, y_upper_half = ty_upper_half[:, 0], ty_upper_half[:, 1]
+
+        t_left_half, t_right_half = t_upper_half[0], t_upper_half[-1]
+        y_left_half, y_right_half = y_upper_half[0], y_upper_half[-1]
+
+        HMP_l = (t_left_half, y_left_half)
+        HMP_r = (t_right_half, y_right_half)
+
+        return (HMP_l, HMP_r, abs(t_right_half - t_left_half))
 
     def draw(self):
 
-        def plot_spectrum(ax:plt.Axes, spectrum, cl, label):
+        def plot_spectrum(ax:plt.Axes, spectrum, cl, label, aux_line:bool=False):
             """绘制光谱数据
 
             Parameters
@@ -393,6 +448,31 @@ class Spectrum:
             """
             ax.plot(self.lambda_omega_converter(spectrum[:, 0]), spectrum[:, 1], cl, label = label)
 
+            if aux_line:
+                pl, pr, FWHM = self.cal_FWHM(*np.hsplit(spectrum, 2))
+                # TODO 绘制辅助线
+       
+        def draw_auxiliary_line(ax: plt.Axes, pl, pr, unit:str, footnote:str):
+
+            ax.annotate( '',
+                        xy=pr, xycoords='data',
+                        xytext=pl, textcoords='data',
+                        arrowprops=dict(arrowstyle='<|-|>',
+                                        color='red')
+                        )
+
+            ax.text(x=(pr[0] + pl[0]) / 2,
+                    y=(pr[1] + pr[1]) / 2,
+                    s='$\Delta_{%s} = %.2f %s$' % (footnote, abs(pr[0] - pl[0]), unit),
+                    verticalalignment='bottom', horizontalalignment='center'
+                    )
+
+            ylim = ax.get_ylim()
+
+            for p in [pl, pr]:
+                ax.axvline(p[0], ymax=(pl[1] - ylim[0]) /
+                           (ylim[1] - ylim[0]), linestyle='--', color='red')
+
 
         self.fig, self.axes= plt.subplots(2, 1)
 
@@ -400,34 +480,31 @@ class Spectrum:
         plot_spectrum(self.axes[0], self.origin_spectrum, 'b', label='raw')
 
         # 去噪后
-        plot_spectrum(self.axes[0], self.spectrum, 'r', 'after clear noise')
-
-        # 插值后 调试用 实际不必展示
-        plot_spectrum(self.axes[0], self.interpolated_spectrum, 'y*', 'interpolated')
+        plot_spectrum(self.axes[0], self.spectrum, 'r', 'after clear noise', aux_line=True)
 
         self.pulse.draw(self.axes[1], cl='r')
         plt.legend()
 
-        # self.fig.show()
         plt.show()
 
         return self.fig
         
+    def update(self, *, mode: str, omega_min: float = None, omega_max: float = None, threshold: float = None, delta_t:float=.01):
 
-    def update(self, *, mode: str, omega_min: float = None, omega_max: float = None, threshold: float = None):
-
-        self.clear_noise(mode=mode, omega_min=omega_min,
+        # 对光谱进行去噪处理, 结果存储于self.spectrum中
+        # 将最终去噪阈值存储于self.clear_noise_final_threshold中
+        self.clear_noise(mode='manual', omega_min=omega_min,
                          omega_max=omega_max, threshold=threshold)
 
         # 找到光谱的最小频率和最大频率
         self.find_omega_boundary()
 
-        self.interpolation()
-
-        self.pulse = Pulse(*self.ifft())
+        # 对self.spectrum进行逆傅里叶变换
+        self.pulse = Pulse(*self.ift(delta_t))
 
         self.draw()
 
-filepath = './data/gussian_spectrum_3fs_800nm.txt'
+if __name__ == '__main__':
+    filepath = './data/gussian_spectrum_3fs_800nm.txt'
 
-spectrum = Spectrum(filepath)
+    spectrum = Spectrum(filepath)
