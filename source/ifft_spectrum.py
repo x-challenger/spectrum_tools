@@ -1,9 +1,12 @@
+import os
 from typing import List
 from matplotlib import pyplot as plt
 import numpy as np
 from numpy import cos, fft, ndarray, ndindex, pi
 from scipy import interpolate, fft
 from scipy.interpolate import interp1d
+from pathos.multiprocessing import ProcessPool as Pool
+
 
 class Pulse:
     
@@ -278,6 +281,13 @@ class Spectrum:
         return (t, abs(amp)**2)
     
     def ift(self) -> np.ndarray:
+        """对self.spectrum进行傅里叶变换
+
+        Returns
+        -------
+        np.ndarray
+            (t, y)
+        """
 
         def f(t: np.ndarray):
 
@@ -351,7 +361,7 @@ class Spectrum:
                 )
             return (t, y)
 
-        delta_t = self.delta_t
+        delta_t = .001
         t_min = -10
         t_max = 10
 
@@ -421,4 +431,3 @@ class Spectrum:
 filepath = './data/gussian_spectrum_3fs_800nm.txt'
 
 spectrum = Spectrum(filepath)
-# %%

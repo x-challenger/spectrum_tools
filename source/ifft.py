@@ -30,7 +30,7 @@ class Spectrum_FFT:
 
         self.data_deleted_per_step_threshold = 0.001
 
-        self.delta_t = 0.01
+        self.delta_t = 0.001
 
         self.show = show
 
@@ -149,9 +149,6 @@ class Spectrum_FFT:
                     'current minimum value of t smaller than expected minimum value of t')
 
             t_lp = np.linspace(t_min, t_c_min, int(
-
-
-                #     y += power * np.e**(1j * omega * t * 100)
                 (t_c_min - t_min) / delta_t))
             y_lp = f(t_lp)
 
@@ -314,9 +311,9 @@ def generate_gussian_spectrum(tau_p, lamda_0):
 
     delta_omega = 4 * np.log(2) * 0.01 / tau_p
 
-    omega_max = omega_0 + delta_omega * 2
+    omega_max = omega_0 + delta_omega * 6
 
-    omega_min = omega_0 - delta_omega * 2
+    omega_min = omega_0 - delta_omega * 6
 
     lamda_max = 2 * np.pi * 3 / (omega_0 - delta_omega)
     lamda_min = 2 * np.pi * 3 / (omega_0 + delta_omega)
