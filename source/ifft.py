@@ -102,7 +102,7 @@ class Spectrum_FFT:
         # 去掉小于0的光谱数据
         spectrum = spectrum[spectrum[:, 1] >= 0]
 
-        spectrum = clear_noise(spectrum.copy())
+        # spectrum = clear_noise(spectrum.copy())
 
         spectrum[:, 1] = np.sqrt(spectrum[:, 1]) # 必须先转化成振幅谱
 
@@ -315,31 +315,32 @@ def generate_gussian_spectrum(tau_p, lamda_0):
 
     delta_omega = 4 * np.log(2) * 0.01 / tau_p
 
-    omega_max = omega_0 + delta_omega * 2
+    omega_max = omega_0 + delta_omega * 4
 
-    omega_min = omega_0 - delta_omega * 2
+    omega_min = omega_0 - delta_omega * 4
 
     lamda_max = 2 * np.pi * 3 / (omega_0 - delta_omega)
     lamda_min = 2 * np.pi * 3 / (omega_0 + delta_omega)
 
     delta_lamda = lamda_max - lamda_min
 
-    d_omega = 0.00001
+    d_omega = 0.000001
 
     return gussian_spectrum(np.linspace(
         omega_min, omega_max, 
         int((omega_max - omega_min) / d_omega)), omega_0 = omega_0, tau_p=tau_p)
+if __name__ == '__main__':
 
-start_time = time.perf_counter()
+    start_time = time.perf_counter()
 
-# spectrum = Spectrum_FFT('./spec.txt')
+    # spectrum = Spectrum_FFT('./spec.txt')
 
-# spectrum.draw()
+    # spectrum.draw()
 
-spectrum_gussian = Spectrum_FFT(spectrum=generate_gussian_spectrum(3, 800), show=True)
+    spectrum_gussian = Spectrum_FFT(spectrum=generate_gussian_spectrum(3, 800), show=True)
 
-end_time = time.perf_counter()
-print('time used: %.3fs' % (end_time - start_time))
+    end_time = time.perf_counter()
+    print('time used: %.3fs' % (end_time - start_time))
 
-spectrum_gussian.draw()
+    spectrum_gussian.draw()
 
