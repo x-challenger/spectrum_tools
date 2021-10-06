@@ -136,7 +136,6 @@ class Spectrum_FFT:
 
             return  np.concatenate(res)# 输出值是光功率
 
-
         def update_t_y(t_min, t_max, delta_t, t, y: np.ndarray):
 
             t_c_min, t_c_max = t[0], t[-1]
@@ -315,16 +314,16 @@ def generate_gussian_spectrum(tau_p, lamda_0):
 
     delta_omega = 4 * np.log(2) * 0.01 / tau_p
 
-    omega_max = omega_0 + delta_omega * 4
+    omega_max = omega_0 + delta_omega * 2
 
-    omega_min = omega_0 - delta_omega * 4
+    omega_min = omega_0 - delta_omega * 2
 
     lamda_max = 2 * np.pi * 3 / (omega_0 - delta_omega)
     lamda_min = 2 * np.pi * 3 / (omega_0 + delta_omega)
 
     delta_lamda = lamda_max - lamda_min
 
-    d_omega = 0.000001
+    d_omega = 0.00001
 
     return gussian_spectrum(np.linspace(
         omega_min, omega_max, 
