@@ -57,7 +57,7 @@ class Spectrum_FFT:
 
         self.ty = np.array([self.t, self.y]).transpose()
 
-        self.pulse = Pulse(*self.cal_FWHM())
+        self.pulse = Pulse(*self.cal_FWHM(self.t, self.y))
 
         self.power_spectrum_pl, self.power_spectrum_pr, self.power_spectrum_width = self.cal_power_spectrum_FWHM()
 
@@ -124,10 +124,10 @@ class Spectrum_FFT:
                 omega_array = 2 * np.pi * 3 / self.spectrum[:, 0]
                 
                 # TODO 应尝试将并行用在该for循环上, 而非拆分numpy数组.
-                for omega, power in zip(omega_array, self.spectrum[:, 1]):
+                for omega, amp in zip(omega_array, self.spectrum[:, 1]):
 
                     # 波长的单位应为nm，时间的单位应为fs
-                    y += power * np.e**(1j * omega * t * 100)
+                    y += amp * np.e**(1j * omega * t * 100)
 
                 return abs(y) ** 2
             
@@ -197,17 +197,21 @@ class Spectrum_FFT:
 
         return (t, y)
 
-    def cal_FWHM(self):
+    def cal_FWHM(self, x, y):
 
-        ty = np.array([self.t, self.y]).transpose()
+        ty = np.column_stack([x, y])
 
-        ty_l = ty[(ty[:, 0] <= 0) * (ty[:, 1] <= 0.5)]
-        t_l = ty_l[ty_l[:, 1].argmax()][0]
+        ty_upper_half = ty[ty[:, 1] >= .5]
 
-        ty_r = ty[(ty[:, 0] >= 0) * (ty[:, 1] <= 0.5)]
+        t_upper_half, y_upper_half = ty_upper_half[:, 0], ty_upper_half[:, 1]
 
-        t_r = ty_r[ty_r[:, 1].argmax()][0]
-        return (abs(t_r - t_l), t_l, t_r)
+        t_left_half, t_right_half = t_upper_half[0], t_upper_half[-1]
+        y_left_half, y_right_half = y_upper_half[0], y_upper_half[-1]
+
+        HMP_l = (t_left_half, y_left_half)
+        HMP_r = (t_right_half, y_right_half)
+
+        return (abs(t_right_half - t_left_half), t_left_half, t_right_half)
 
     def cal_power_spectrum_FWHM(self):
 
