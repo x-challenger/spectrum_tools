@@ -330,10 +330,10 @@ class Spectrum:
 
                 omega_array = self.spectrum[:, 0]
 
-                for omega, power in zip(omega_array, self.spectrum[:, 1]):
+                for omega, amp in zip(omega_array, np.sqrt(self.spectrum[:, 1])):
 
                     # 波长的单位应为nm，时间的单位应为fs
-                    y += power * np.e**(1j * omega * t * 100)
+                    y += amp * np.e**(1j * omega * t * 100)
 
                 return abs(y) ** 2
 
@@ -501,23 +501,26 @@ class Spectrum:
                 pass
 
             self.spectrum_aux_lines = []
-            for p in [pl, pr]:
-                self.spectrum_aux_lines.append(
-                    ax.axvline(p[0], ymin=ylim[0], ymax=p[1],
-                              linestyle='--', color='red'))
 
-            self.fig.canvas.mpl_connect('resize_event', on_draw)
+            for p in [pl, pr]:
+                    ax.vlines(p[0], ymin=ylim[0], ymax=p[1],
+                              linestyle='--', color='red')
+                    # 当绘制了辅助线之后, y轴范围会改变, 必须重新将ylim设置回原来的值
+                    ax.set_ylim(ylim) 
 
         self.fig, self.axes = plt.subplots(2, 1)
 
         # 将原始光谱数据绘制在图上, 以便手动设置去噪参数
-        plot_spectrum(self.axes[0], self.origin_spectrum, 'b', label='raw')
+        # plot_spectrum(self.axes[0], self.origin_spectrum, 'b', label='raw')
 
         # 去噪后
         plot_spectrum(self.axes[0], self.spectrum, 'r',
                       'after clear noise', aux_line=True)
 
+        # 绘制脉冲及其辅助线
         self.pulse.draw(self.axes[1], cl='r')
+        draw_auxiliary_line(self.axes[1], self.pulse.HMP_l, self.pulse.HMP_r, 'fs', 't')
+
         plt.legend()
 
         plt.show()
@@ -538,7 +541,6 @@ class Spectrum:
         self.pulse = Pulse(*self.ift(delta_t))
 
         self.draw()
-
 
 if __name__ == '__main__':
     filepath = './data/gussian_spectrum_3fs_800nm.txt'
