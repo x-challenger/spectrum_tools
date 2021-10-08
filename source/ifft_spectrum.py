@@ -54,7 +54,7 @@ class Pulse:
 
     def draw(self, ax: plt.Axes, cl: str = '', label: str = 'pulse'):
 
-        ax.plot(self.t, self.intensity, cl, label=label)
+        ax.plot(self.t[:10000], self.intensity[:10000], cl, label=label)
 
 
 class Spectrum:
@@ -255,9 +255,11 @@ class Spectrum:
         interp_fun = interp1d(omega, power, kind='linear',
                               bounds_error=False, fill_value=(0, 0))
 
-        min_delta_omega = find_min_delta_omega(omega)
+        min_delta_omega = find_min_delta_omega(omega) * 2
 
-        N = int(self.omega_max / min_delta_omega)
+        omega_max = 2 * pi / self.delta_t - min_delta_omega
+
+        N = int(omega_max / min_delta_omega)
 
         omega_new = generate_equal_space_array(0, min_delta_omega, N + 1)
 
@@ -527,7 +529,7 @@ class Spectrum:
 
         return self.fig
 
-    def update(self, *, mode: str, omega_min: float = None, omega_max: float = None, threshold: float = None, delta_t: float = .01):
+    def update(self, *, mode: str, omega_min: float = None, omega_max: float = None, threshold: float = None, delta_t: float = .1):
 
         # 对光谱进行去噪处理, 结果存储于self.spectrum中
         # 将最终去噪阈值存储于self.clear_noise_final_threshold中
@@ -537,8 +539,13 @@ class Spectrum:
         # 找到光谱的最小频率和最大频率
         self.find_omega_boundary()
 
+        self.delta_t = delta_t
+        # 对self.spectrum进行插值, 生成self.interpolated_spectrum
+        self.interpolation()
+
+        self.pulse = Pulse(*self.ifft())
         # 对self.spectrum进行逆傅里叶变换
-        self.pulse = Pulse(*self.ift(delta_t))
+        # self.pulse = Pulse(*self.ift(delta_t))
 
         self.draw()
 
