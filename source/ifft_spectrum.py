@@ -252,10 +252,10 @@ class Spectrum:
         def flatten(array): return array.flatten()  # 将数组变成一维
 
         omega, power = map(flatten, np.hsplit(self.spectrum, 2))
-        interp_fun = interp1d(omega, power, kind='linear',
+        interp_fun = interp1d(omega, power, kind='cubic',
                               bounds_error=False, fill_value=(0, 0))
 
-        min_delta_omega = find_min_delta_omega(omega) * 2
+        min_delta_omega = find_min_delta_omega(omega) * 10
 
         omega_max = 2 * pi / self.delta_t - min_delta_omega
 
@@ -287,10 +287,10 @@ class Spectrum:
 
         # 根据离散傅里叶变换的定义, 0和奈奎斯特采样频率处的振幅对原函数的贡献为1/NF[n], 中间频率分量的贡献为2/NF[n],
         # 但光栅光谱仪测出来的光谱值, 应指的是实际脉冲中频率分量的贡献F[n], 若要使这两者相同, 则应对光栅光谱仪测出的数据除以2.
-        if len(self.amp_spectrum) // 2 == 0:  # n even
-            self.amp_spectrum[1:-1] /= 2
-        else:
-            self.amp_spectrum[1:-1] /= 2
+        # if len(self.amp_spectrum) // 2 == 0:  # n even
+        #     self.amp_spectrum[1:-1] /= 2
+        # else:
+        #     self.amp_spectrum[1:-1] /= 2
 
         amp = fft.irfft(self.amp_spectrum[:, 1])
 
@@ -304,7 +304,7 @@ class Spectrum:
 
         return (t, abs(amp)**2)
 
-    def ift(self, delta_t) -> np.ndarray:
+    def ift(self, delta_t, spectrum:ndarray=None) -> np.ndarray:
         """对self.spectrum进行傅里叶变换
 
         Parameters:
@@ -330,9 +330,9 @@ class Spectrum:
 
                 y = np.zeros((len(t), ), dtype=np.complex128)
 
-                omega_array = self.spectrum[:, 0]
+                omega_array = spectrum[:, 0]
 
-                for omega, amp in zip(omega_array, np.sqrt(self.spectrum[:, 1])):
+                for omega, amp in zip(omega_array, np.sqrt(spectrum[:, 1])):
 
                     # 波长的单位应为nm，时间的单位应为fs
                     y += amp * np.e**(1j * omega * t * 100)
@@ -395,6 +395,9 @@ class Spectrum:
         t_min = -10
         t_max = 10
 
+        if spectrum is None:
+            spectrum = self.spectrum
+
         t = np.linspace(t_min, t_max, int((t_max - t_min) / delta_t))
 
         y = f(t)
@@ -439,7 +442,7 @@ class Spectrum:
 
     def draw(self):
 
-        def plot_spectrum(ax: plt.Axes, spectrum, cl, label, aux_line: bool = False):
+        def plot_spectrum(ax: plt.Axes, spectrum, cl, label, aux_line: bool = False, **kwargs):
             """绘制光谱数据
 
             Parameters
@@ -455,8 +458,8 @@ class Spectrum:
             """
             lamda_power = spectrum.copy()
 
-            lamda_power[:, 0] = self.lambda_omega_converter(lamda_power[:, 0])
-            ax.plot(lamda_power[:, 0], lamda_power[:, 1], cl, label=label)
+            # lamda_power[:, 0] = self.lambda_omega_converter(lamda_power[:, 0])
+            ax.plot(lamda_power[:, 0], lamda_power[:, 1], cl, label=label, **kwargs)
 
             if aux_line:
                 pl, pr, FWHM = self.cal_FWHM(
@@ -510,19 +513,31 @@ class Spectrum:
                     # 当绘制了辅助线之后, y轴范围会改变, 必须重新将ylim设置回原来的值
                     ax.set_ylim(ylim) 
 
-        self.fig, self.axes = plt.subplots(2, 1)
+        self.fig, self.axes = plt.subplots(4, 1)
 
         # 将原始光谱数据绘制在图上, 以便手动设置去噪参数
         # plot_spectrum(self.axes[0], self.origin_spectrum, 'b', label='raw')
 
         # 去噪后
-        plot_spectrum(self.axes[0], self.spectrum, 'r',
+        plot_spectrum(self.axes[0], self.spectrum, 'b+',
                       'after clear noise', aux_line=True)
 
+        plot_spectrum(self.axes[0], self.interpolated_spectrum, 'r', label='interpolated')
+        
         # 绘制脉冲及其辅助线
         self.pulse.draw(self.axes[1], cl='r')
         draw_auxiliary_line(self.axes[1], self.pulse.HMP_l, self.pulse.HMP_r, 'fs', 't')
 
+        spec = fft.fft(np.sqrt(self.pulse.intensity))
+        freq = fft.fftfreq(n=len(self.pulse.intensity), d=self.delta_t)
+
+        
+        self.axes[2].plot(freq, abs(spec)**2, 'r+')
+        self.axes[2].set_title('result of rfft')
+
+        self.axes[3].plot( fft.ifft(
+            np.concatenate((np.zeros(30), abs(spec)))
+            )**2 )
         plt.legend()
 
         plt.show()
@@ -543,9 +558,10 @@ class Spectrum:
         # 对self.spectrum进行插值, 生成self.interpolated_spectrum
         self.interpolation()
 
-        self.pulse = Pulse(*self.ifft())
+        # self.pulse = Pulse(*self.ifft())
+        
         # 对self.spectrum进行逆傅里叶变换
-        # self.pulse = Pulse(*self.ift(delta_t))
+        self.pulse = Pulse(*self.ift(delta_t))
 
         self.draw()
 
