@@ -52,9 +52,42 @@ class Pulse:
 
         return (HMP_l, HMP_r, abs(t_right_half - t_left_half))
 
-    def draw(self, ax: plt.Axes, cl: str = '', label: str = 'pulse'):
+    def t_FWHM_window(self, n:int):
+        """根据函数的半高全宽, 用n*(self.FWHM)作为时间窗口, 对数据进行截取
 
-        ax.plot(self.t[:10000], self.intensity[:10000], cl, label=label)
+        Parameters
+        ----------
+        n : int
+
+        """
+
+        width = n * self.FWHM
+
+        t_max = width / 2
+        t_min = - width / 2
+        ty = np.column_stack([self.t, self.intensity])
+
+        ty = ty[(t_min < ty[:, 0]) * (ty[:, 0] < t_max)]
+
+        return np.hsplit(ty, 2)
+
+
+    def draw(self, n, ax: plt.Axes, cl: str = '', label: str = 'pulse'):
+        """对脉冲进行绘图展示
+
+        Parameters
+        ----------
+        n : int
+            控制时间窗口的大小,n代表FWHM的倍数
+        ax : plt.Axes
+            
+        cl : str, optional
+            颜色和线条类型, by default ''
+        label : str, optional
+            线条名称, by default 'pulse'
+        """
+        # 截取n个半高宽时间窗口以内的数据进行展示
+        ax.plot(*self.t_FWHM_window(n), cl, label=label)
 
 
 class Spectrum:
@@ -108,6 +141,7 @@ class Spectrum:
 
     def lambda_omega_converter(self, x):
         """将x对应的波长和频率进行相互转化
+        注: omega的数量级为10^17
 
         Parameters:
         -------
@@ -255,13 +289,23 @@ class Spectrum:
         interp_fun = interp1d(omega, power, kind='cubic',
                               bounds_error=False, fill_value=(0, 0))
 
-        min_delta_omega = find_min_delta_omega(omega) * 10
+        # 找到\delta_\omega
+        min_delta_omega = find_min_delta_omega(omega)
 
-        omega_max = 2 * pi / self.delta_t - min_delta_omega
+        # 下式中乘100是因为函数接口中给出的self.delta_t的单位为fs,
+        # 数量级为10^(-15), 在傅里叶变换过程中,时间的数量级始终为10^(-17)
+        self.N = int(2 * pi / (min_delta_omega * self.delta_t * 100))
 
-        N = int(omega_max / min_delta_omega)
+        # 计算出N之后计算实际的\delta_t
+        self.real_delta_t = 2 * pi / (min_delta_omega * self.N) * 0.01
 
-        omega_new = generate_equal_space_array(0, min_delta_omega, N + 1)
+        # 防止设置的self.delta_t过大,导致频谱成分丢失.
+        if (omega_max:= max(omega)) > (pi / self.delta_t):
+            raise Warning('self.delta_t过大, 光谱的最大频率已大于奈奎斯特频率')
+
+        # 产生新的等间隔omega数组, 
+        # 注意:此时omega_new中频率的最大值应该略微小于原来数组omega中的最大值max(omega)
+        omega_new = np.arange(start=0, stop=omega_max, step=min_delta_omega)
 
         power_new = interp_fun(omega_new)
 
@@ -292,17 +336,24 @@ class Spectrum:
         # else:
         #     self.amp_spectrum[1:-1] /= 2
 
-        amp = fft.irfft(self.amp_spectrum[:, 1])
+        amp = fft.ifft(self.amp_spectrum[:, 1], n=self.N)
 
         delta_omega = abs(
             self.interpolated_spectrum[:, 0][1] - self.interpolated_spectrum[:, 0][0])
-        delta_t = 2 * pi / \
-            (max(self.interpolated_spectrum[:, 0]) + delta_omega)
+
+
+        delta_t = self.real_delta_t
 
         # self.amp_spectrum和self.origin_spectrum的最大频率值严重不符
-        t = np.arange(0, len(amp), 1) * delta_t
 
-        return (t, abs(amp)**2)
+        intensity = np.abs(amp) ** 2
+
+        # 将脉冲的后半部分挪到负时间轴
+        min_index = intensity.argmin()
+        intensity = np.concatenate([intensity[min_index:], intensity[0:min_index]])
+
+        t = np.arange(min_index - self.N, min_index, 1) * delta_t
+        return (t, intensity)
 
     def ift(self, delta_t, spectrum:ndarray=None) -> np.ndarray:
         """对self.spectrum进行傅里叶变换
@@ -513,32 +564,47 @@ class Spectrum:
                     # 当绘制了辅助线之后, y轴范围会改变, 必须重新将ylim设置回原来的值
                     ax.set_ylim(ylim) 
 
-        self.fig, self.axes = plt.subplots(4, 1)
+        self.fig = plt.figure()
+        self.grid_spec = self.fig.add_gridspec(2, 2)
 
         # 将原始光谱数据绘制在图上, 以便手动设置去噪参数
         # plot_spectrum(self.axes[0], self.origin_spectrum, 'b', label='raw')
 
         # 去噪后
-        plot_spectrum(self.axes[0], self.spectrum, 'b+',
+        ax1 = self.fig.add_subplot(self.grid_spec[0, :])
+        plot_spectrum(ax1, self.spectrum, 'b+',
                       'after clear noise', aux_line=True)
 
-        plot_spectrum(self.axes[0], self.interpolated_spectrum, 'r', label='interpolated')
+        plot_spectrum(ax1, self.interpolated_spectrum, 'r', label='interpolated')
         
         # 绘制脉冲及其辅助线
-        self.pulse.draw(self.axes[1], cl='r')
-        draw_auxiliary_line(self.axes[1], self.pulse.HMP_l, self.pulse.HMP_r, 'fs', 't')
+        ax2 = self.fig.add_subplot(self.grid_spec[1, :])
+        self.pulse.draw(n=4, ax=ax2, cl='r')
+        draw_auxiliary_line(ax2, self.pulse.HMP_l, self.pulse.HMP_r, 'fs', 't')
 
-        spec = fft.fft(np.sqrt(self.pulse.intensity))
-        freq = fft.fftfreq(n=len(self.pulse.intensity), d=self.delta_t)
+        # # 绘制快速傅里叶变换得到的光谱
+        # spec = fft.fft(np.sqrt(self.pulse.intensity))
+        # freq = fft.fftfreq(n=len(self.pulse.intensity), d=self.delta_t)
+        # ax3 = self.fig.add_subplot(self.grid_spec[2, :-1])
+        # ax3.plot(freq, abs(spec)**2, 'r+')
+        # ax3.set_title('power spectrum of fft')
 
-        
-        self.axes[2].plot(freq, abs(spec)**2, 'r+')
-        self.axes[2].set_title('result of rfft')
+        # ax4 = self.fig.add_subplot(self.grid_spec[2, -1])
+        # ax4.plot( fft.ifft(
+        #    abs(spec) ) )
+        # ax4.set_title('ifft of amplitude spectrum')
 
-        self.axes[3].plot( fft.ifft(
-            np.concatenate((np.zeros(30), abs(spec)))
-            )**2 )
+        # ax5 = self.fig.add_subplot(self.grid_spec[3, 0])
+        # ax5.plot(
+        #     np.concatenate((np.zeros(30), abs(spec[:170])))
+        # )
+        # ax6 = self.fig.add_subplot(self.grid_spec[3, 1])
+        # ax6.plot( fft.ifft(
+        #     np.concatenate((np.zeros(30), abs(spec[:170])))
+        #     ))
+
         plt.legend()
+        plt.tight_layout()
 
         plt.show()
 
@@ -561,7 +627,7 @@ class Spectrum:
         # self.pulse = Pulse(*self.ifft())
         
         # 对self.spectrum进行逆傅里叶变换
-        self.pulse = Pulse(*self.ift(delta_t))
+        self.pulse = Pulse(*self.ifft())
 
         self.draw()
 
