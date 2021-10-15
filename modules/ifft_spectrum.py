@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import List
 from matplotlib import pyplot as plt
@@ -13,7 +14,9 @@ import matplotlib.transforms as transforms
 from time import perf_counter
 from line_profiler import LineProfiler
 import cProfile
-import time 
+import time
+import logging
+logger = logging.getLogger(__name__)
 
 class Pulse:
 
@@ -104,9 +107,7 @@ class Pulse:
         else:
             for line in ax.get_lines():
                 if line._label == 'pulse':
-                    print('重设线条2的数据')
                     line.set_data(*self.t_FWHM_window(n))
-
 
 class Spectrum:
 
@@ -424,11 +425,7 @@ class Spectrum:
         # else:
         #     self.amp_spectrum[1:-1] /= 2
 
-        try:
-            amp = fft.ifft(self.amp_spectrum[:, 1], n=self.N)
-            # TODO fix: self.N会在多次修改lambda min后改变为0
-        except:
-            print(self.N)
+        amp = fft.ifft(self.amp_spectrum[:, 1], n=self.N)
 
         delta_omega = abs(
             self.interpolated_spectrum[:, 0][1] - self.interpolated_spectrum[:, 0][0])
@@ -651,12 +648,9 @@ class Spectrum:
         
             # 判断半高宽是否为inf
             if abs(pr[0] - pl[0]) == np.inf:
-                print('width:', abs(pr[0] - pl[0]))
-
                 s = '$\Delta_{%s} = \infty %s$' % (
                     footnote, unit)
             else:
-                print('width:', abs(pr[0] - pl[0]))
                 s='$\Delta_{%s} = %.2f %s$' % (
                     footnote, abs(pr[0] - pl[0]), unit)
             
@@ -671,7 +665,7 @@ class Spectrum:
                         verticalalignment='bottom', horizontalalignment='center'
                         )
 
-            ylim = ax.get_ylim()
+            # ylim = ax.get_ylim()
 
             # for p in [pl, pr]:
             #     ax.vlines(p[0], ymin=ylim[0], ymax=p[1],
@@ -679,15 +673,19 @@ class Spectrum:
             #     # 当绘制了辅助线之后, y轴范围会改变, 必须重新将ylim设置回原来的值
             #     ax.set_ylim(ylim)
 
+        start_time = perf_counter()
         if self.fig is None:
             self.fig = plt.figure()
         if not hasattr(self, 'grid_spec'):
             self.grid_spec = self.fig.add_gridspec(2, 2)
+        logger.debug(f'创建grid_spec耗时:{perf_counter()- start_time}')
+        end_time = perf_counter()
 
         # 绘制原始光谱数据
         if (axes := self.fig.get_axes()) == []:
             ax1 = self.fig.add_subplot(self.grid_spec[0, :])
             ax2 = self.fig.add_subplot(self.grid_spec[1, :])
+
         else:
             for ax in axes:
                 if ax.get_title() == 'frequency domain':
@@ -697,6 +695,7 @@ class Spectrum:
 
 
         ax1.set_title('frequency domain')
+
 
         if ax1.lines == []:
             plot_spectrum(ax1, self.origin_spectrum, 'b',
@@ -742,19 +741,26 @@ class Spectrum:
                         [self.lambda_omega_converter(self.omega_max)] * 2)
         ax1.legend()
 
+        logger.debug(f'绘制原始光谱数据耗时:{perf_counter()- end_time}')
+        end_time = perf_counter()
+
         # 绘制脉冲及其辅助线
         ax2.set_title('time domain')
         # 绘制4FWHM内的数据
         self.pulse.draw(n=4, ax=ax2, cl='r')
         draw_auxiliary_line(ax2, self.pulse.HMP_l, self.pulse.HMP_r, 'fs', 't')
-        
+
+
+        logger.debug(f'绘制脉冲数据耗时:{perf_counter()- end_time}')
+        end_time = perf_counter()
+
         # self.fig.tight_layout()
 
     def update(self, *, mode: str, omega_min: float = None, omega_max: float = None, threshold: float = 0, delta_t: float = .1):
 
         # 找到光谱的最小频率和最大频率
-        print('正在刷新')
-        print(f'omega_min:{omega_min}\t omega_max:{omega_max}, threshold:{threshold}')
+        logger.debug('正在刷新')
+        logger.debug(f'omega_min:{omega_min}\t omega_max:{omega_max}, threshold:{threshold}')
         start = perf_counter()
         self.delta_t = delta_t
 
@@ -780,20 +786,20 @@ class Spectrum:
                                  omega_min=omega_min, omega_max=omega_max, threshold=threshold)
 
             self.pulse = Pulse(*self.ift(self.ift_spectrum))
-
-        # print(f'刷新用时:{perf_counter()-start}')
+            
+        # ifft_end = perf_counter()
+        # logger.debug(f'ifft 用时:{ifft_end-start}')
         # lp_profiler = LineProfiler()
         # lp_fun = lp_profiler(self.draw)
         # lp_fun()
-        # lp_profiler.print_stats(output_unit=0.001)
-        # with cProfile.Profile(timeunit=1) as pf:
+        # lp_profiler.print_stats()
+        self.draw()
+
+        # with cProfile.Profile() as pf:
         #     self.draw()
         #     pf.print_stats(sort='tottime')
-        ifft_end = perf_counter()
-        print(f'ifft 用时:{ifft_end-start}')
-        self.draw()
-        print(f'绘制用时:{perf_counter()-start}')
 
+        logger.debug(f'绘制用时:{perf_counter()-start}')
 
 if __name__ == '__main__':
     filepath = 'data/spec.txt'
@@ -801,6 +807,5 @@ if __name__ == '__main__':
     start = perf_counter()
     spectrum = Spectrum(filepath=filepath, method='ifft')
     print(f'used time:{perf_counter() - start}s')
-    # spectrum.update(mode='manual', omega_min=0.003)
 
     plt.show()

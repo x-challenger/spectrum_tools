@@ -18,6 +18,9 @@ from modules.ifft_spectrum import *
 import threading
 import time
 from threading import Timer
+import logging
+logger = logging.getLogger(__name__)
+
 matplotlib.use('Qt5Agg')
 
 
@@ -55,8 +58,13 @@ class DataBase(Singleton):
             光谱数据路径
         """
 
+        start_time = perf_counter()
         self.spectrum = Spectrum(filepath=filepath, Figure=Figure)
+        logger.debug(f'ifft_spectrum初始化用时:{perf_counter() - start_time}')
+        start_time = perf_counter()
         self.canvas.draw()  # 只有执行此函数才能重新显示图形
+        logger.debug(f'self.canvas.draw用时:{perf_counter() - start_time}')
+        logger.debug('初始图形已绘制')
 
     def set_attribute(self, name: str, value):
         """为数据库增加属性
@@ -82,7 +90,7 @@ class Canvas(FigureCanvasQTAgg):
 
     def __init__(self, parent=None, figure=None):
         self.fig = Figure()
-        super(Canvas, self).__init__(figure=self.fig)
+        super().__init__(figure=self.fig)
 
 
 class LineEditor(QWidget):
