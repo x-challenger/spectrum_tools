@@ -1,4 +1,4 @@
-from tkinter.font import Font
+from tkinter.font import NORMAL, Font
 import typing
 from PyQt5 import QtCore
 from PyQt5.QtGui import QFont
@@ -11,14 +11,18 @@ import os
 import sys
 from pathlib import Path
 import matplotlib
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
+# from matplotlib.backends.backend_qt5 import NavigationToolbar2QT
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
 from matplotlib.figure import Figure
+from matplotlib.lines import Line2D
 from matplotlib.pyplot import text
 from modules.ifft_spectrum import *
 import threading
 import time
 from threading import Timer
 import logging
+from matplotlib.backend_bases import Event
+
 logger = logging.getLogger(__name__)
 
 matplotlib.use('Qt5Agg')
@@ -183,7 +187,7 @@ class LineEditor(QWidget):
 
             return value
 
-        def isequal_last_value(value:dict):
+        def isequal_last_value(value: dict):
             """判断本次所需要更新的值是否与上次相同
 
             Parameters
@@ -197,14 +201,13 @@ class LineEditor(QWidget):
                 'threshold': self.db.spectrum.clear_noise_final_threshold,
             }
 
-            equal=False
+            equal = False
             for key in value:
                 if value[key] != last_value[key]:
                     continue
-                equal=True
+                equal = True
 
         value = get_value()
-
 
         if hasattr(self.db, 'spectrum') and not isequal_last_value(value):  # 只有在已经打开光谱的情况下才会更新光谱
             self.db.spectrum.update(mode='manual', **value)
@@ -293,7 +296,21 @@ class ClearNoiseBox(QGroupBox):
         for editor in self.findChildren(LineEditor):
             editor.reset_spinbox()
 
+class DraggableStraightLine:
+    """可以在图中拖动的直线
+    """
+    lock = None # 控制一次只能移动一条线
 
+    def __init__(self, line:Line2D) -> None:
+        self.line = line
+        self.xy_data = None
+        self.xy_mouse = None
+
+        self.backgroung = None
+
+
+    def on_press(self, event:Event):
+        pass
 class MainWidget(QWidget):
 
     def __init__(self) -> None:
@@ -307,9 +324,14 @@ class MainWidget(QWidget):
         self.hlayout = QHBoxLayout()
         self.setLayout(self.hlayout)
 
-        # 将画布添加进layout
+        # 添加画布及其工具条
+        vbox = QVBoxLayout()  # 竖直放置toolbar和canvas
+        self.hlayout.addLayout(vbox, 1)
+
         self.canvas = Canvas(self)
-        self.hlayout.addWidget(self.canvas, 1)
+        self.canvas_toolbar = NavigationToolbar2QT(self.canvas, self)
+        vbox.addWidget(self.canvas_toolbar)
+        vbox.addWidget(self.canvas)
 
         # 将这块画布添加进数据库
         DataBase().set_attribute('canvas', self.canvas)
@@ -325,7 +347,6 @@ class MainWidget(QWidget):
         self.vlayout.addWidget(self.info_label, alignment=Qt.AlignCenter)
         self.info_label.setObjectName('info label')
         self.info_label.setWordWrap(True)
-        
 
         self.vlayout.addStretch()
 

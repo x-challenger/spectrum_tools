@@ -418,13 +418,6 @@ class Spectrum:
         self.amp_spectrum = spectrum.copy()
         self.amp_spectrum[:, 1] = np.sqrt(self.amp_spectrum[:, 1])
 
-        # 根据离散傅里叶变换的定义, 0和奈奎斯特采样频率处的振幅对原函数的贡献为1/NF[n], 中间频率分量的贡献为2/NF[n],
-        # 但光栅光谱仪测出来的光谱值, 应指的是实际脉冲中频率分量的贡献F[n], 若要使这两者相同, 则应对光栅光谱仪测出的数据除以2.
-        # if len(self.amp_spectrum) // 2 == 0:  # n even
-        #     self.amp_spectrum[1:-1] /= 2
-        # else:
-        #     self.amp_spectrum[1:-1] /= 2
-
         amp = fft.ifft(self.amp_spectrum[:, 1], n=self.N)
 
         delta_omega = abs(
@@ -716,18 +709,29 @@ class Spectrum:
                               'used spectrum(after clear noise)', aux_line=True)
 
         # 绘制阈值线
+        lambda_min = self.lambda_omega_converter(self.omega_max)
+
         if len(ax1.lines) == 1:
             ax1.axhline(y=self.clear_noise_final_threshold,
                         color='red', label='threshold')
             # 绘制omega窗口
             if self.omega_min != None:
-                ax1.axvline(self.lambda_omega_converter(self.omega_min),
+                lambda_max = self.lambda_omega_converter(self.omega_min)
+                ax1.axvline(lambda_max,
                             color='r', label='$\lambda_{max}$')
-            if self.omega_max != None:
-                ax1.axvline(self.lambda_omega_converter(self.omega_max),
-                            color='g', label='$\lambda_{min}$')
-        else:
 
+            if self.omega_max != None:
+                lambda_min = self.lambda_omega_converter(self.omega_max)
+                ax1.axvline(lambda_min,
+                            color='g', label='$\lambda_{min}$')
+
+            try: # 尝试根据现有波长窗口设置x边界, 如果有任意一者为None, 则跳过
+                ax1.set_xlim([lambda_min - 50, lambda_max + 50])
+            except:
+                pass
+
+
+        else:
             for line in ax1.lines:
                 if line._label == 'threshold':
                     line.set_ydata([self.clear_noise_final_threshold] * 2)
@@ -786,13 +790,15 @@ class Spectrum:
                                  omega_min=omega_min, omega_max=omega_max, threshold=threshold)
 
             self.pulse = Pulse(*self.ift(self.ift_spectrum))
-            
+        
+        # 使用line_profiler分析代码执行时间
         # ifft_end = perf_counter()
         # logger.debug(f'ifft 用时:{ifft_end-start}')
         # lp_profiler = LineProfiler()
         # lp_fun = lp_profiler(self.draw)
         # lp_fun()
         # lp_profiler.print_stats()
+
         self.draw()
 
         # with cProfile.Profile() as pf:
