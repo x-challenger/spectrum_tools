@@ -102,7 +102,7 @@ class Spectrum_FFT:
         # 去掉小于0的光谱数据
         spectrum = spectrum[spectrum[:, 1] >= 0]
 
-        # spectrum = clear_noise(spectrum.copy())
+        spectrum = clear_noise(spectrum.copy())
 
         spectrum[:, 1] = np.sqrt(spectrum[:, 1]) # 必须先转化成振幅谱
 
@@ -334,7 +334,7 @@ if __name__ == '__main__':
     start_time = time.perf_counter()
 
     # spectrum_gussian = Spectrum_FFT(spectrum=generate_gussian_spectrum(3, 800), show=True)
-    spectrum_gussian = Spectrum_FFT('.\data\gussian_spectrum_3fs_800nm.txt', show=True)
+    spectrum_gussian = Spectrum_FFT('.\data\spec.txt', show=True)
 
     end_time = time.perf_counter()
     print('time used: %.3fs' % (end_time - start_time))
