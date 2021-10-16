@@ -325,6 +325,7 @@ class Spectrum:
             pl, pr, fwhm = self.cal_FWHM(*np.hsplit(self.spectrum, 2))
             omega_0 = (pl[0] + pr[0]) / 2
             omega_min = omega_0 - fwhm * omega_window_factor
+            omega_min = omega_min if omega_min >=0 else min(self.spectrum[:, 0])
             omega_max = omega_0 + fwhm * omega_window_factor
 
             spectrum = omega_window(spectrum, omega_min, omega_max)
@@ -742,6 +743,7 @@ class Spectrum:
 
             try:  # 尝试根据现有波长窗口设置x边界, 如果有任意一者为None, 则跳过
                 ax1.set_xlim([lambda_min - 50, lambda_max + 50])
+                pass
             except:
                 pass
 
@@ -767,6 +769,7 @@ class Spectrum:
         # 绘制4FWHM内的数据
         self.pulse.draw(n=4, ax=ax2, cl='r')
         draw_auxiliary_line(ax2, self.pulse.HMP_l, self.pulse.HMP_r, 'fs', 't')
+        ax2.legend()
 
         logger.debug(f'绘制脉冲数据耗时:{perf_counter()- end_time}')
         end_time = perf_counter()
@@ -829,3 +832,5 @@ if __name__ == '__main__':
     print(f'used time:{perf_counter() - start}s')
 
     plt.show()
+
+

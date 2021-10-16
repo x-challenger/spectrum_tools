@@ -3,10 +3,10 @@ import re
 import typing
 from PyQt5 import QtCore
 from PyQt5.QtGui import QFont
-from PyQt5.QtWidgets import (QAction, QApplication, QDesktopWidget, QDoubleSpinBox,
+from PyQt5.QtWidgets import (QAction, QApplication, QDesktopWidget, QDialog, QDialogButtonBox, QDoubleSpinBox,
                              QFileDialog, QFontDialog, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-                             QMainWindow, QPushButton, QSpinBox, QVBoxLayout, QWidget, qApp, QComboBox)
-from PyQt5.QtCore import Qt, QTimer
+                             QMainWindow, QPushButton, QSpinBox, QVBoxLayout, QWidget, qApp, QComboBox, QProgressDialog)
+from PyQt5.QtCore import Q_FLAG, QSaveFile, Qt, QTimer
 # from PyQt5.QtSvg import QSvgWidget
 import os
 import sys
@@ -23,6 +23,11 @@ import time
 from threading import Timer
 import logging
 from matplotlib.backend_bases import Event
+import json
+import pickle
+
+CONFIG_FILE_PATH = './config/config.pkl'
+PICKLE_PROTOCOL = pickle.HIGHEST_PROTOCOL
 
 logger = logging.getLogger(__name__)
 
@@ -42,13 +47,28 @@ class Singleton:
     _shared_state = {}
 
     def __init__(self):
+        # 将两者绑定在一起, 改变任一者, 另一者便会跟着改变
         self.__dict__ = self._shared_state
+
+    def clear(self):
+        """
+        清空数据库
+        """
+        try:
+            while True:
+                # Singleton._shared_state与所有实例的__dict__相连, 而用popitem()或者pop()方法
+                # 删除元素后不会切断这种联系, 因此两者皆会变化.
+                #  pop()会报RuntimeError(在删除元素过程中改变了字典大小)
+                Singleton._shared_state.popitem()
+        except KeyError:
+            pass
 
 
 class DataBase(Singleton):
 
     def __init__(self):
         Singleton.__init__(self)
+        
 
     def __getitem__(self, name):
 
@@ -62,6 +82,7 @@ class DataBase(Singleton):
         filepath : str
             光谱数据路径
         """
+        pass
 
         start_time = perf_counter()
         self.spectrum = Spectrum(filepath=filepath, Figure=Figure)
@@ -101,6 +122,19 @@ class DataBase(Singleton):
         self.__setattr__(name, value)
 
 
+class Config():
+    """
+    程序配置对象
+    """
+
+    def __init__(self):
+        pass
+
+    def __getitem__(self, name):
+
+        return self.__getattribute__(name)
+
+
 class Canvas(FigureCanvasQTAgg):
 
     def __init__(self, parent=None, figure=None):
@@ -120,7 +154,7 @@ class Canvas(FigureCanvasQTAgg):
         self.figure.tight_layout()
         self.draw()
 
-        
+
 class LineEditor(QWidget):
 
     def __init__(self, name, min_, max_, step, prec=0) -> None:
@@ -199,6 +233,7 @@ class LineEditor(QWidget):
 
             value = {}
             for spin_box in clnbox.findChildren(QDoubleSpinBox):
+
                 if spin_box.objectName() == 'lambda max':
                     value['omega_min'] = self.db.spectrum.lambda_omega_converter(
                         spin_box.value())
@@ -231,9 +266,11 @@ class LineEditor(QWidget):
                     continue
                 equal = True
 
+        if not hasattr(self.db, 'spectrum'):
+            return
         value = get_value()
 
-        if hasattr(self.db, 'spectrum') and not isequal_last_value(value):  # 只有在已经打开光谱的情况下才会更新光谱
+        if not isequal_last_value(value):  # 只有在已经打开光谱的情况下才会更新光谱
             self.db.spectrum.update(mode='manual', **value)
             self.db.canvas.draw()
 
@@ -251,7 +288,7 @@ class LineEditor(QWidget):
             lambda_max_sbox = self.parentWidget().findChild(QDoubleSpinBox, 'lambda max')
             lambda_max_sbox.setMinimum(self.spin_box.value())
 
-        if ClearNoiseBox.lock: # 如果被锁, 则不更新光谱
+        if ClearNoiseBox.lock:  # 如果被锁, 则不更新光谱
             return
 
         self.update_spectrum()
@@ -276,8 +313,12 @@ class GroupBox(QGroupBox):
         vbox = QVBoxLayout()
 
         if type_ == 'omega':
-            self.omega_max_line_editor = LineEditor('lambda max', 1, 2000, 1)
-            self.omega_min_line_editor = LineEditor('lambda min', 1, 2000, 1)
+            # 将精度设置为0.01是考虑到左右移动线段时如果精度太低,
+            # 线条不会定在指定位置(波长不为整数的位置), 这样不利于对某些噪声点进行处理
+            self.omega_max_line_editor = LineEditor(
+                'lambda max', 1, 2000, 1, prec=2)
+            self.omega_min_line_editor = LineEditor(
+                'lambda min', 1, 2000, 1, prec=2)
 
             vbox.addWidget(self.omega_max_line_editor,
                            alignment=Qt.AlignCenter)
@@ -332,7 +373,7 @@ class DraggableStraightLine:
     """
     lock = None  # 控制一次只能移动一条线
 
-    db = None # 用来修改spin_box中的值
+    db = None  # 用来修改spin_box中的值
 
     def __init__(self, line: Line2D) -> None:
         self.line = line
@@ -383,7 +424,6 @@ class DraggableStraightLine:
 
         canvas.blit(axes.bbox)  # 将已经更新的RGBA缓冲显示在GUI上
 
-
     def on_motion(self, event):
         """
         移动线段
@@ -432,10 +472,10 @@ class DraggableStraightLine:
 
         canvas.blit(axes.bbox)  # 显示图形
 
-        ClearNoiseBox.lock = True # 上锁, 禁用绘图更新
+        ClearNoiseBox.lock = True  # 上锁, 禁用绘图更新
         # 更新spinbox中的值
         self.update_value(update_fig=False)
-        
+
     def on_release(self, event):
         """
         鼠标释放时, 绘制最终的图形, 释放锁
@@ -447,21 +487,21 @@ class DraggableStraightLine:
         if DraggableStraightLine.lock is not self:
             return
 
-        if self.new_value is None: # 没有这个值则说明没有移动
+        if self.new_value is None:  # 没有这个值则说明没有移动
             return
 
         DraggableStraightLine.lock = None
         self.mouse_press_xy = None
         self.line_xy_0 = None
 
-        self.line.set_animated(False) # 关闭animated
+        self.line.set_animated(False)  # 关闭animated
         self.background = None
 
         self.line.figure.canvas.draw()  # 重新绘制整副图形(包含被移动的线段(animated已关闭))
-        self.update_value(update_fig = True)
+        self.update_value(update_fig=True)
         self.new_value = None
 
-    def update_value(self, update_fig:bool=False):
+    def update_value(self, update_fig: bool = False):
         """
         更新spin_box中的值
         """
@@ -491,6 +531,7 @@ class NavigationToolbar(NavigationToolbar2QT):
             if action.text() == 'Customize':
                 action.triggered.connect(canvas.update_legend)
 
+
 class MainWidget(QWidget):
 
     def __init__(self) -> None:
@@ -510,12 +551,14 @@ class MainWidget(QWidget):
 
         self.canvas = Canvas(self)
         self.canvas_toolbar = NavigationToolbar(self.canvas, self)
-        self.canvas_toolbar.findChildren(QAction)[9].triggered.connect(self.canvas.update_legend)
+        self.canvas_toolbar.findChildren(
+            QAction)[9].triggered.connect(self.canvas.update_legend)
         vbox.addWidget(self.canvas_toolbar)
         vbox.addWidget(self.canvas)
 
         # 将这块画布添加进数据库
-        DataBase().set_attribute('canvas', self.canvas)
+        self.db = DataBase()
+        self.db.set_attribute('canvas', self.canvas)
 
         # 设置纵向layout用于放置各类交互框
         self.vlayout = QVBoxLayout()
@@ -551,7 +594,9 @@ class MainWindow(QMainWindow):
 
     def init_UI(self):
 
-        self.resize(950, 600)
+        self.load_config()
+
+        self.resize(1120, 700)
         self.setWindowTitle('spectrum tools')
 
         self.center()
@@ -559,6 +604,28 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(MainWidget())
 
         self.add_file_menu()
+
+
+
+    def load_config(self):
+        """
+        加载程序配置
+        """
+
+        self.db = DataBase() 
+        
+        if os.path.exists(CONFIG_FILE_PATH):
+
+            with open(CONFIG_FILE_PATH, 'rb') as inp:
+                config = pickle.load(inp)
+
+        self.db.set_attribute('config', config)
+
+    def save_config(self):
+
+        with open(CONFIG_FILE_PATH, 'wb') as outp:
+            pickle.dump(self.db.config, outp, PICKLE_PROTOCOL)
+
 
     def add_file_menu(self):
 
@@ -571,24 +638,23 @@ class MainWindow(QMainWindow):
             return act
 
         def open_file(e):
-            store_path_file = 'data/recent_open'
-            if os.path.exists(store_path_file):
-                with open(store_path_file, 'rb') as fp:
-                    init_dir = fp.read().decode('utf-8')
+            if os.path.exists(self.db, CONFIG_FILE_PATH):
+
+                init_dir = self.db.open_file_dir
             else:
                 init_dir = str(Path.home())
             # fname = QFileDialog.getOpenFileName(
             #     self, caption='open file', directory=init_dir)
             fname = ['data/spec.txt']
-
             if fname[0]:
-
                 # 保存这次打开的文件夹
-                with open(store_path_file, 'wb+') as fp:
-                    fp.write(os.path.split(fname[0])[0].encode('utf-8'))
+                setattr(self.db, 'open_file_dir', init_dir)
 
                 self.db = DataBase()
-                # db.canvas.axes.clear()
+                canvas = self.db.canvas
+                self.db.clear()  # 清除数据库
+                canvas.figure.clear()
+                self.db.set_attribute('canvas', canvas)
                 # 初始化spectrum,并在figure上进行绘图
                 self.db.init(fname[0], self.db.canvas.figure)
 
@@ -615,13 +681,13 @@ class MainWindow(QMainWindow):
                 self.db.set_attribute('init_lambda_min', lambda_min)
                 self.db.set_attribute('init_threshold', threshold)
 
-
-
         menu_bar = self.menuBar()
         file_menu = menu_bar.addMenu('&File')
 
         open_act = get_act(text='&Open', triggered_fun=open_file,
                            shortcut='ctrl+o', statusTip='open a new file')
+        save_act = get_act(text='&Save', triggered_fun=self.on_save,
+                           shortcut='ctrl+s', statusTip='Save result')
         exit_act = get_act(text='&Exit', triggered_fun=qApp.exit,
                            shortcut='ctrl+Q', statusTip='Exit application')
         file_menu.addActions([open_act, exit_act])
@@ -634,12 +700,26 @@ class MainWindow(QMainWindow):
 
         self.move(qr.topLeft())
 
+
     def resizeEvent(self, a0) -> None:
 
         logger.debug(f'窗口大小改变:{a0.size()}')
         return super().resizeEvent(a0)
 
 
+    def on_save(self):
+        
+        pd = QProgressDialog()
+        # 如果为modal则进度条显示时, 用户无法与应用其他部分交互,
+        # 此处设为这样是避免存储过程中意外修改数据, 造成不必要的错误
+        pd.setWindowModality(Qt.WindowModal)
+
+        pd.setRange(0, 4)
+
+        
+
+        folder = QFileDialog.getExistingDirectory(self, caption='save result', )
+    
 def main():
 
     app = QApplication(sys.argv)
