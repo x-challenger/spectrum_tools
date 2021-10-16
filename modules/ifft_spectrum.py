@@ -18,6 +18,18 @@ import time
 import logging
 logger = logging.getLogger(__name__)
 
+
+class Line:
+    """
+    用来存储一些制定线段
+    """
+
+    def __init__(self, line, name) -> None:
+
+        self.name = name
+        self.line = line
+
+
 class Pulse:
 
     def __init__(self, t, intensity) -> None:
@@ -49,13 +61,14 @@ class Pulse:
             HMP_r:半高处右边的点
             FWHM:半高全宽值
         """
-        
+
         ty = np.column_stack([x, np.nan_to_num(y)])
-        
+
         ty_upper_half = ty[ty[:, 1] >= .5]
 
         if len(ty_upper_half) != 0:
-            t_upper_half, y_upper_half = ty_upper_half[:, 0], ty_upper_half[:, 1]
+            t_upper_half, y_upper_half = ty_upper_half[:,
+                                                       0], ty_upper_half[:, 1]
 
             t_left_half, t_right_half = t_upper_half[0], t_upper_half[-1]
             y_left_half, y_right_half = y_upper_half[0], y_upper_half[-1]
@@ -94,6 +107,8 @@ class Pulse:
         ----------
         n : int
             控制时间窗口的大小,n代表FWHM的倍数
+
+
         ax : plt.Axes
 
         cl : str, optional
@@ -108,6 +123,7 @@ class Pulse:
             for line in ax.get_lines():
                 if line._label == 'pulse':
                     line.set_data(*self.t_FWHM_window(n))
+
 
 class Spectrum:
 
@@ -638,15 +654,15 @@ class Spectrum:
                             arrowprops=dict(arrowstyle='<|-|>',
                                             color='red')
                             )
-        
+
             # 判断半高宽是否为inf
             if abs(pr[0] - pl[0]) == np.inf:
                 s = '$\Delta_{%s} = \infty %s$' % (
                     footnote, unit)
             else:
-                s='$\Delta_{%s} = %.2f %s$' % (
+                s = '$\Delta_{%s} = %.2f %s$' % (
                     footnote, abs(pr[0] - pl[0]), unit)
-            
+
             # 判断是否已经存在文本
             if (t := get_text(ax, 'Delta')) != []:
                 t[0].set_text(s)
@@ -667,6 +683,7 @@ class Spectrum:
             #     ax.set_ylim(ylim)
 
         start_time = perf_counter()
+
         if self.fig is None:
             self.fig = plt.figure()
         if not hasattr(self, 'grid_spec'):
@@ -686,9 +703,7 @@ class Spectrum:
                 if ax.get_title() == 'time domain':
                     ax2 = ax
 
-
         ax1.set_title('frequency domain')
-
 
         if ax1.lines == []:
             plot_spectrum(ax1, self.origin_spectrum, 'b',
@@ -712,24 +727,23 @@ class Spectrum:
         lambda_min = self.lambda_omega_converter(self.omega_max)
 
         if len(ax1.lines) == 1:
-            ax1.axhline(y=self.clear_noise_final_threshold,
-                        color='red', label='threshold')
+            self.threshold_line = Line(ax1.axhline(y=self.clear_noise_final_threshold,
+                                                   color='red', label='threshold'), 'threshold')
             # 绘制omega窗口
             if self.omega_min != None:
                 lambda_max = self.lambda_omega_converter(self.omega_min)
-                ax1.axvline(lambda_max,
-                            color='r', label='$\lambda_{max}$')
+                self.lambda_max_line = Line(ax1.axvline(lambda_max,
+                                                        color='r', label='$\lambda_{max}$'), 'lambda max')
 
             if self.omega_max != None:
                 lambda_min = self.lambda_omega_converter(self.omega_max)
-                ax1.axvline(lambda_min,
-                            color='g', label='$\lambda_{min}$')
+                self.lambda_min_line = Line(ax1.axvline(lambda_min,
+                                                        color='g', label='$\lambda_{min}$'), 'lambda min')
 
-            try: # 尝试根据现有波长窗口设置x边界, 如果有任意一者为None, 则跳过
+            try:  # 尝试根据现有波长窗口设置x边界, 如果有任意一者为None, 则跳过
                 ax1.set_xlim([lambda_min - 50, lambda_max + 50])
             except:
                 pass
-
 
         else:
             for line in ax1.lines:
@@ -754,7 +768,6 @@ class Spectrum:
         self.pulse.draw(n=4, ax=ax2, cl='r')
         draw_auxiliary_line(ax2, self.pulse.HMP_l, self.pulse.HMP_r, 'fs', 't')
 
-
         logger.debug(f'绘制脉冲数据耗时:{perf_counter()- end_time}')
         end_time = perf_counter()
 
@@ -764,7 +777,8 @@ class Spectrum:
 
         # 找到光谱的最小频率和最大频率
         logger.debug('正在刷新')
-        logger.debug(f'omega_min:{omega_min}\t omega_max:{omega_max}, threshold:{threshold}')
+        logger.debug(
+            f'omega_min:{omega_min}\t omega_max:{omega_max}, threshold:{threshold}')
         start = perf_counter()
         self.delta_t = delta_t
 
@@ -790,7 +804,7 @@ class Spectrum:
                                  omega_min=omega_min, omega_max=omega_max, threshold=threshold)
 
             self.pulse = Pulse(*self.ift(self.ift_spectrum))
-        
+
         # 使用line_profiler分析代码执行时间
         # ifft_end = perf_counter()
         # logger.debug(f'ifft 用时:{ifft_end-start}')
@@ -806,6 +820,7 @@ class Spectrum:
         #     pf.print_stats(sort='tottime')
 
         logger.debug(f'绘制用时:{perf_counter()-start}')
+
 
 if __name__ == '__main__':
     filepath = 'data/spec.txt'

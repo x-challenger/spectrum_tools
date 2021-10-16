@@ -1,4 +1,5 @@
-from tkinter.font import NORMAL, Font
+from enum import Flag
+import re
 import typing
 from PyQt5 import QtCore
 from PyQt5.QtGui import QFont
@@ -6,7 +7,7 @@ from PyQt5.QtWidgets import (QAction, QApplication, QDesktopWidget, QDoubleSpinB
                              QFileDialog, QFontDialog, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
                              QMainWindow, QPushButton, QSpinBox, QVBoxLayout, QWidget, qApp, QComboBox)
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtSvg import QSvgWidget
+# from PyQt5.QtSvg import QSvgWidget
 import os
 import sys
 from pathlib import Path
@@ -69,6 +70,15 @@ class DataBase(Singleton):
         self.canvas.draw()  # 只有执行此函数才能重新显示图形
         logger.debug(f'self.canvas.draw用时:{perf_counter() - start_time}')
         logger.debug('初始图形已绘制')
+
+        self.draggable_lines = []
+        for line in self.canvas.fig.axes[0].lines:
+            if line.get_label() == 'raw':  # 这个名字可能会变动
+                continue
+            dl = DraggableStraightLine(line)
+            dl.connect()
+
+            self.draggable_lines.append(dl)
 
     def set_attribute(self, name: str, value):
         """为数据库增加属性
@@ -213,10 +223,11 @@ class LineEditor(QWidget):
             self.db.spectrum.update(mode='manual', **value)
             self.db.canvas.draw()
 
-    def on_value_changed(self):
+    def on_value_changed(self, a0):
         """
         当输入框数值改变时作出反应
         """
+
         # 当lambda的某个窗口的值改变时, 应该调整另一个窗口的取值范围
         if self.objectName() == 'lambda max':  # lambda max的值改变
             lambda_min_sbox = self.parentWidget().findChild(QDoubleSpinBox, 'lambda min')
@@ -225,6 +236,9 @@ class LineEditor(QWidget):
         if self.objectName() == 'lambda min':  # 聚焦于lambda min输入框
             lambda_max_sbox = self.parentWidget().findChild(QDoubleSpinBox, 'lambda max')
             lambda_max_sbox.setMinimum(self.spin_box.value())
+
+        if ClearNoiseBox.lock: # 如果被锁, 则不更新光谱
+            return
 
         self.update_spectrum()
 
@@ -268,6 +282,8 @@ class GroupBox(QGroupBox):
 
 class ClearNoiseBox(QGroupBox):
 
+    lock = False  # 用来控制是否进行更新光谱操作的全局锁
+
     def __init__(self):
 
         super().__init__('clear noise')
@@ -296,21 +312,165 @@ class ClearNoiseBox(QGroupBox):
         for editor in self.findChildren(LineEditor):
             editor.reset_spinbox()
 
+
 class DraggableStraightLine:
     """可以在图中拖动的直线
     """
-    lock = None # 控制一次只能移动一条线
+    lock = None  # 控制一次只能移动一条线
 
-    def __init__(self, line:Line2D) -> None:
+    db = None # 用来修改spin_box中的值
+
+    def __init__(self, line: Line2D) -> None:
         self.line = line
         self.xy_data = None
         self.xy_mouse = None
 
-        self.backgroung = None
+        self.background = None
+        self.new_value = None
+
+        if DraggableStraightLine.db is None:  # 若db为空, 则进行初始化
+
+            DraggableStraightLine.db = DataBase()
+
+    def connect(self):
+
+        self.line.figure.canvas.mpl_connect(
+            'button_press_event', self.on_press)
+        self.line.figure.canvas.mpl_connect(
+            'motion_notify_event', self.on_motion)
+        self.line.figure.canvas.mpl_connect(
+            'button_release_event', self.on_release)
+
+    def on_press(self, event: Event):
+        print('mouse pressed')
+        # 若鼠标不在该axes上或者锁不为空, 则返回
+        if event.inaxes != self.line.axes or DraggableStraightLine.lock != None:
+            return
+
+        if not self.line.contains(event)[0]:  # 查看鼠标是否在该条线上
+            return
+
+        DraggableStraightLine.lock = self
+        self.mouse_press_xy = event.xdata, event.ydata
+        self.line_xy_0 = self.line.get_xydata()
+
+        canvas = self.line.figure.canvas
+        axes = self.line.axes
+
+        # animated=True意味着告诉matplotlib只有在显式请求时才重新绘制该对象
+        self.line.set_animated(True)
+        canvas.draw()  # 此时绘图结果只包含除上述线段外的其他内容
+
+        # 保存背景, 该背景在以后绘制中保持不变
+        self.background = canvas.copy_from_bbox(self.line.axes.bbox)
+
+        # 重新绘制此条线, 因为canvas.draw()并未绘制该条线
+        axes.draw_artist(self.line)  # 显式请求绘制animated=True的artist, 使用缓存渲染器
+
+        canvas.blit(axes.bbox)  # 将已经更新的RGBA缓冲显示在GUI上
 
 
-    def on_press(self, event:Event):
-        pass
+    def on_motion(self, event):
+        """
+        移动线段
+        """
+
+        # 若鼠标移动时间不在线段所在的区域, 或者被选中的对象不是该线段, 则返回.
+        # 由此可以看出matplotlib的事件处理是多线程的, 所有DraggableStraightLine对象均接受到此信号,
+        # 但只有self.lock锁定的对象(被锁定意味着在press时间中被选中)才能继续移动
+        if event.inaxes != self.line.axes or DraggableStraightLine.lock != self:
+            return
+
+        p0, p1 = self.line_xy_0
+
+        x_press, y_press = self.mouse_press_xy
+
+        x_mouse, y_mouse = event.xdata, event.ydata
+
+        if (p0 == p1).all():  # 如果两个端点的值直接相等, 没有什么意义, 不做处理
+            return
+
+        if p0[0] == p1[0]:  # 如果两个端点的x值相等, 那么说明为竖线, 应该水平移动
+
+            delta_x = x_mouse - x_press
+
+            self.line.set_xdata([p0[0] + delta_x] * 2)
+
+            self.new_value = p0[0] + delta_x
+
+        elif p0[1] == p1[1]:  # 若两端点y值相等, 则说明为水平线段, 应该竖直移动
+
+            delta_y = y_mouse - y_press
+
+            self.line.set_ydata([p0[1] + delta_y] * 2)
+
+            self.new_value = p0[1] + delta_y
+
+        else:  # 如果既不水平也不垂直则不做处理
+            return
+
+        canvas = self.line.figure.canvas
+        axes = self.line.axes
+
+        canvas.restore_region(self.background)  # 重新恢复背景(不包含要移动的线段)
+
+        axes.draw_artist(self.line)  # 重新绘制线段
+
+        canvas.blit(axes.bbox)  # 显示图形
+
+        ClearNoiseBox.lock = True # 上锁, 禁用绘图更新
+        # 更新spinbox中的值
+        self.update_value(update_fig=False)
+        
+    def on_release(self, event):
+        """
+        鼠标释放时, 绘制最终的图形, 释放锁
+
+        Args:
+            event (Event): 鼠标释放事件
+        """
+
+        if DraggableStraightLine.lock is not self:
+            return
+
+        DraggableStraightLine.lock = None
+        self.mouse_press_xy = None
+        self.line_xy_0 = None
+
+        self.line.set_animated(False) # 关闭animated
+        self.background = None
+
+        self.line.figure.canvas.draw()  # 重新绘制整副图形(包含被移动的线段(animated已关闭))
+        self.update_value(update_fig = True)
+        self.new_value = None
+
+
+
+    def update_value(self, update_fig:bool=False):
+        """
+        更新spin_box中的值
+        """
+
+        ClearNoiseBox.lock = (not update_fig)
+        spec = DraggableStraightLine.db.spectrum
+
+        for line in [spec.lambda_min_line, spec.lambda_max_line, spec.threshold_line]:
+
+            if line.line is self.line:
+                sbox = DraggableStraightLine.db.main_window.findChild(
+                    QDoubleSpinBox, line.name)
+
+                # 鼠标释放时在移动事件中已经将spin_box的值更新好, 因此为spin_box设置同一值不会起到任何作用, 这是只需要触发一个valueChanged信号即可
+                sbox.setValue(self.new_value)
+                sbox.valueChanged.emit(self.new_value)
+
+        ClearNoiseBox.lock = False
+
+class NavigationToolbar(NavigationToolbar2QT):
+
+    def __init__(self, canvas, parent, coordinates=True):
+        super().__init__(canvas, parent, coordinates=coordinates)
+
 class MainWidget(QWidget):
 
     def __init__(self) -> None:
@@ -329,7 +489,8 @@ class MainWidget(QWidget):
         self.hlayout.addLayout(vbox, 1)
 
         self.canvas = Canvas(self)
-        self.canvas_toolbar = NavigationToolbar2QT(self.canvas, self)
+        # TODO toolbar中修改label后legend中并没有更新该label, 这不是pyqt的问题, 而是matplotlib的问题
+        self.canvas_toolbar = NavigationToolbar(self.canvas, self)
         vbox.addWidget(self.canvas_toolbar)
         vbox.addWidget(self.canvas)
 
@@ -398,7 +559,7 @@ class MainWindow(QMainWindow):
                 init_dir = str(Path.home())
             # fname = QFileDialog.getOpenFileName(
             #     self, caption='open file', directory=init_dir)
-            fname = ['D:\space\work\spectrum_tools\data\spec.txt']
+            fname = ['data/spec.txt']
 
             if fname[0]:
 
@@ -419,11 +580,15 @@ class MainWindow(QMainWindow):
                 lambda_min = spec.lambda_omega_converter(spec.omega_max)
                 threshold = spec.clear_noise_final_threshold
                 # 将值填写到spinbox中
+                # 现在怀疑由于以下同步值的同时图形会被重绘, 因此会托慢启动速度, 需要先禁用更新
+                ClearNoiseBox.lock = True
                 self.findChild(
                     QDoubleSpinBox, 'lambda max').setValue(lambda_max)
                 self.findChild(
                     QDoubleSpinBox, 'lambda min').setValue(lambda_min)
                 self.findChild(QDoubleSpinBox, 'threshold').setValue(threshold)
+
+                ClearNoiseBox.lock = None  # 锁置空, 启用更新
 
                 # 将初始值保存到数据库中
                 self.db.set_attribute('init_lambda_max', lambda_max)
