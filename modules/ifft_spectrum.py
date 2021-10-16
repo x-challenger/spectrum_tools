@@ -771,7 +771,6 @@ class Spectrum:
         logger.debug(f'绘制脉冲数据耗时:{perf_counter()- end_time}')
         end_time = perf_counter()
 
-        # self.fig.tight_layout()
 
     def update(self, *, mode: str, omega_min: float = None, omega_max: float = None, threshold: float = 0, delta_t: float = .1):
 

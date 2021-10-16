@@ -67,6 +67,7 @@ class DataBase(Singleton):
         self.spectrum = Spectrum(filepath=filepath, Figure=Figure)
         logger.debug(f'ifft_spectrum初始化用时:{perf_counter() - start_time}')
         start_time = perf_counter()
+        self.canvas.figure.tight_layout()
         self.canvas.draw()  # 只有执行此函数才能重新显示图形
         logger.debug(f'self.canvas.draw用时:{perf_counter() - start_time}')
         logger.debug('初始图形已绘制')
@@ -106,7 +107,20 @@ class Canvas(FigureCanvasQTAgg):
         self.fig = Figure()
         super().__init__(figure=self.fig)
 
+    def update_legend(self, a0):
 
+        for ax in self.figure.axes:
+            ax.legend()
+
+        self.draw()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+
+        self.figure.tight_layout()
+        self.draw()
+
+        
 class LineEditor(QWidget):
 
     def __init__(self, name, min_, max_, step, prec=0) -> None:
@@ -433,6 +447,9 @@ class DraggableStraightLine:
         if DraggableStraightLine.lock is not self:
             return
 
+        if self.new_value is None: # 没有这个值则说明没有移动
+            return
+
         DraggableStraightLine.lock = None
         self.mouse_press_xy = None
         self.line_xy_0 = None
@@ -443,8 +460,6 @@ class DraggableStraightLine:
         self.line.figure.canvas.draw()  # 重新绘制整副图形(包含被移动的线段(animated已关闭))
         self.update_value(update_fig = True)
         self.new_value = None
-
-
 
     def update_value(self, update_fig:bool=False):
         """
@@ -466,10 +481,15 @@ class DraggableStraightLine:
 
         ClearNoiseBox.lock = False
 
+
 class NavigationToolbar(NavigationToolbar2QT):
 
     def __init__(self, canvas, parent, coordinates=True):
         super().__init__(canvas, parent, coordinates=coordinates)
+
+        for action in self.findChildren(QAction):
+            if action.text() == 'Customize':
+                action.triggered.connect(canvas.update_legend)
 
 class MainWidget(QWidget):
 
@@ -489,8 +509,8 @@ class MainWidget(QWidget):
         self.hlayout.addLayout(vbox, 1)
 
         self.canvas = Canvas(self)
-        # TODO toolbar中修改label后legend中并没有更新该label, 这不是pyqt的问题, 而是matplotlib的问题
         self.canvas_toolbar = NavigationToolbar(self.canvas, self)
+        self.canvas_toolbar.findChildren(QAction)[9].triggered.connect(self.canvas.update_legend)
         vbox.addWidget(self.canvas_toolbar)
         vbox.addWidget(self.canvas)
 
@@ -531,7 +551,7 @@ class MainWindow(QMainWindow):
 
     def init_UI(self):
 
-        self.resize(700, 500)
+        self.resize(950, 600)
         self.setWindowTitle('spectrum tools')
 
         self.center()
@@ -595,6 +615,8 @@ class MainWindow(QMainWindow):
                 self.db.set_attribute('init_lambda_min', lambda_min)
                 self.db.set_attribute('init_threshold', threshold)
 
+
+
         menu_bar = self.menuBar()
         file_menu = menu_bar.addMenu('&File')
 
@@ -611,6 +633,11 @@ class MainWindow(QMainWindow):
         qr.moveCenter(QDesktopWidget().availableGeometry().center())
 
         self.move(qr.topLeft())
+
+    def resizeEvent(self, a0) -> None:
+
+        logger.debug(f'窗口大小改变:{a0.size()}')
+        return super().resizeEvent(a0)
 
 
 def main():
