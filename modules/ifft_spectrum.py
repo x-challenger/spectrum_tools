@@ -119,6 +119,7 @@ class Pulse:
         # 截取n个半高宽时间窗口以内的数据进行展示
         if ax.lines == []:
             ax.plot(*self.t_FWHM_window(n), cl, label=label)
+            ax.legend()
         else:
             for line in ax.get_lines():
                 if line._label == 'pulse':
@@ -327,6 +328,7 @@ class Spectrum:
             omega_min = omega_0 - fwhm * omega_window_factor
             omega_min = omega_min if omega_min >=0 else min(self.spectrum[:, 0])
             omega_max = omega_0 + fwhm * omega_window_factor
+            omega_max = omega_max if (spec_omega_max:=max(self.spectrum[:, 0])) >= omega_max else spec_omega_max 
 
             spectrum = omega_window(spectrum, omega_min, omega_max)
             self.omega_min, self.omega_max = omega_min, omega_max
@@ -727,6 +729,7 @@ class Spectrum:
         # 绘制阈值线
         lambda_min = self.lambda_omega_converter(self.omega_max)
 
+        # 图上没有预知线, 需要初始化
         if len(ax1.lines) == 1:
             self.threshold_line = Line(ax1.axhline(y=self.clear_noise_final_threshold,
                                                    color='red', label='threshold'), 'threshold')
@@ -747,6 +750,9 @@ class Spectrum:
             except:
                 pass
 
+            ax1.legend()
+        
+        # 刷新阈值线
         else:
             for line in ax1.lines:
                 if line._label == 'threshold':
@@ -759,7 +765,6 @@ class Spectrum:
                 if line._label == '$\\lambda_{min}$':
                     line.set_xdata(
                         [self.lambda_omega_converter(self.omega_max)] * 2)
-        ax1.legend()
 
         logger.debug(f'绘制原始光谱数据耗时:{perf_counter()- end_time}')
         end_time = perf_counter()
@@ -769,7 +774,6 @@ class Spectrum:
         # 绘制4FWHM内的数据
         self.pulse.draw(n=4, ax=ax2, cl='r')
         draw_auxiliary_line(ax2, self.pulse.HMP_l, self.pulse.HMP_r, 'fs', 't')
-        ax2.legend()
 
         logger.debug(f'绘制脉冲数据耗时:{perf_counter()- end_time}')
         end_time = perf_counter()
