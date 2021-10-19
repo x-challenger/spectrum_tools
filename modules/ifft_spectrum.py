@@ -210,8 +210,11 @@ class Spectrum:
         delimiter : string
             数据分隔符
         """
-
-        self.spectrum = np.loadtxt(fname=filepath, delimiter=delimiter)
+        for delimiter_ in [delimiter, '\t', ' ', ',']: # 一个一个文件分隔符进行尝试, 如果加载错误, 则说明文件分隔符不对
+            try:
+                self.spectrum = np.loadtxt(fname=filepath, delimiter=delimiter_)
+            except:
+                continue
 
     def clear_noise(self, *, mode: str, spectrum: ndarray, omega_min: float = None, omega_max: float = None, omega_window_factor: float = 5, threshold: float = 0.):
         """

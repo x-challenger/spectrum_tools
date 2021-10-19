@@ -5,10 +5,19 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Python: project main file with debug",
+            "type": "python",
+            "request": "launch",
+            "program": "spectrum_tools.py",
+            "console": "integratedTerminal",
+            "args": ["--debug"]
+            // "justMyCode": false
+        },
+        {
             "name": "Python: project main file",
             "type": "python",
             "request": "launch",
-            "program": "main.py",
+            "program": "spectrum_tools.py",
             "console": "integratedTerminal",
             // "justMyCode": false
         },
